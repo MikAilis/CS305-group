@@ -38,6 +38,7 @@ def test_send_download(normal_session):
 
 def test_handshaking(normal_session):
     handshaking_session = normal_session
+    print(handshaking_session.peer_list[("127.0.0.1", 48002)].recv_record[("127.0.0.1", 48001)][0])
     assert handshaking_session.peer_list[("127.0.0.1", 48002)].recv_record[("127.0.0.1", 48001)][0] > 0, "Fail to receive any WHOHAS"
     assert handshaking_session.peer_list[("127.0.0.1", 48001)].recv_record[("127.0.0.1", 48002)][1] > 0, "Fail to receive any IHAVE"
     assert handshaking_session.peer_list[("127.0.0.1", 48002)].recv_record[("127.0.0.1", 48001)][2] > 0, "Fail to receive any DOWNLOAD"

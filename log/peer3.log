@@ -1,0 +1,3 @@
+2023-01-06 15:14:35,338 - PEER3_LOGGER - INFO - Start logging
+2023-01-06 15:14:35,338 - PEER3_LOGGER - INFO - Network simulator activated, running at ('127.0.0.1', 36858).
+2023-01-06 15:14:35,444 - PEER3_LOGGER - DEBUG - Receiving a pkt from ('127.0.0.1', 48001) via spiffy

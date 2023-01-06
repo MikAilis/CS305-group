@@ -2,3 +2,4 @@ Group 93:
 Remote container: worker17-1
 IP: 172.18.34.93
 port: 30449
+ssh student1@172.18.34.93 -p 30449
