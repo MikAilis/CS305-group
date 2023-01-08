@@ -1,5 +1,6 @@
 import sys
 import os
+
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 import select
 import util.simsocket as simsocket
@@ -16,7 +17,7 @@ Please refer to the example files - example/dumpreceiver.py and example/dumpsend
 """
 
 BUF_SIZE = 1400
-CHUNK_DATA_SIZE = 512*1024
+CHUNK_DATA_SIZE = 512 * 1024
 HEADER_LEN = struct.calcsize("HBBHHII")
 MAX_PAYLOAD = 1024
 
@@ -25,7 +26,8 @@ ex_output_file = None
 ex_received_chunk = dict()
 ex_downloading_chunkhash = ""
 
-def process_download(sock,chunkfile, outputfile):
+
+def process_download(sock, chunkfile, outputfile):
     '''
     if DOWNLOAD is used, the peer will keep getting files until it is done
     '''
@@ -35,7 +37,7 @@ def process_download(sock,chunkfile, outputfile):
     global ex_downloading_chunkhash
 
     ex_output_file = outputfile
-    #Step 1: read chunkhash to be downloaded from chunkfile
+    # Step 1: read chunkhash to be downloaded from chunkfile
     download_hash = bytes()
     with open(chunkfile, 'r') as cf:
         index, datahash_str = cf.readline().strip().split(" ")
@@ -51,7 +53,8 @@ def process_download(sock,chunkfile, outputfile):
     # |2byte  header len  |2byte pkt len |
     # |      4byte  seq                  |
     # |      4byte  ack                  |
-    whohas_header = struct.pack("HBBHHII", socket.htons(52305),35, 0, socket.htons(HEADER_LEN), socket.htons(HEADER_LEN+len(download_hash)), socket.htonl(0), socket.htonl(0))
+    whohas_header = struct.pack("HBBHHII", socket.htons(52305), 93, 0, socket.htons(HEADER_LEN),
+                                socket.htons(HEADER_LEN + len(download_hash)), socket.htonl(0), socket.htonl(0))
     whohas_pkt = whohas_header + download_hash
 
     # Step3: flooding whohas to all peers in peer list
@@ -61,16 +64,23 @@ def process_download(sock,chunkfile, outputfile):
             sock.sendto(whohas_pkt, (p[1], int(p[2])))
 
 
-
 def process_inbound_udp(sock):
     global config
     global ex_sending_chunkhash
 
     # Receive pkt
     pkt, from_addr = sock.recvfrom(BUF_SIZE)
-    Magic, Team, Type,hlen, plen, Seq, Ack= struct.unpack("HBBHHII", pkt[:HEADER_LEN])
+    Magic, Team, Type, hlen, plen, Seq, Ack = struct.unpack("HBBHHII", pkt[:HEADER_LEN])
     data = pkt[HEADER_LEN:]
-    print("SKELETON CODE CALLED, FILL this!")
+    # print("SKELETON CODE CALLED, FILL this!")
+    # 根据接收Type类型判断当前状态
+    # 0: whohas
+    # 1: ihave
+    # 2: get
+    # 3: data
+    # 4: ACK
+    # 5: denied(暂时不用管）
+    #
 
     if Type == 0:
         # received an WHOHAS pkt
@@ -82,9 +92,11 @@ def process_inbound_udp(sock):
 
         print(f"whohas: {chunkhash_str}, has: {list(config.haschunks.keys())}")
         if chunkhash_str in config.haschunks:
-        # send back IHAVE pkt
-            ihave_header = struct.pack("HBBHHII", socket.htons(52305), 35, 1, socket.htons(HEADER_LEN), socket.htons(HEADER_LEN+len(whohas_chunk_hash)), socket.htonl(0), socket.htonl(0))
-            ihave_pkt = ihave_header+whohas_chunk_hash
+            # send back IHAVE pkt
+            ihave_header = struct.pack("HBBHHII", socket.htons(52305), 93, 1, socket.htons(HEADER_LEN),
+                                       socket.htons(HEADER_LEN + len(whohas_chunk_hash)), socket.htonl(0),
+                                       socket.htonl(0))
+            ihave_pkt = ihave_header + whohas_chunk_hash
             sock.sendto(ihave_pkt, from_addr)
     elif Type == 1:
         # received an IHAVE pkt
@@ -92,7 +104,7 @@ def process_inbound_udp(sock):
         get_chunk_hash = data[:20]
 
         # send back GET pkt
-        get_header = struct.pack("HBBHHII", socket.htons(52305), 35, 2, socket.htons(HEADER_LEN),
+        get_header = struct.pack("HBBHHII", socket.htons(52305), 93, 2, socket.htons(HEADER_LEN),
                                  socket.htons(HEADER_LEN + len(get_chunk_hash)), socket.htonl(0), socket.htonl(0))
         get_pkt = get_header + get_chunk_hash
         sock.sendto(get_pkt, from_addr)
@@ -101,7 +113,7 @@ def process_inbound_udp(sock):
         chunk_data = config.haschunks[ex_sending_chunkhash][:MAX_PAYLOAD]
 
         # send back DATA
-        data_header = struct.pack("HBBHHII", socket.htons(52305), 35, 3, socket.htons(HEADER_LEN),
+        data_header = struct.pack("HBBHHII", socket.htons(52305), 93, 3, socket.htons(HEADER_LEN),
                                   socket.htons(HEADER_LEN), socket.htonl(1), 0)
         sock.sendto(data_header + chunk_data, from_addr)
     elif Type == 3:
@@ -109,9 +121,10 @@ def process_inbound_udp(sock):
         ex_received_chunk[ex_downloading_chunkhash] += data
 
         # send back ACK
-        ack_pkt = struct.pack("HBBHHII", socket.htons(52305),35,  4,socket.htons(HEADER_LEN), socket.htons(HEADER_LEN), 0, Seq)
+        ack_pkt = struct.pack("HBBHHII", socket.htons(52305), 93, 4, socket.htons(HEADER_LEN), socket.htons(HEADER_LEN),
+                              0, Seq)
         sock.sendto(ack_pkt, from_addr)
-        
+
         # see if finished
         if len(ex_received_chunk[ex_downloading_chunkhash]) == CHUNK_DATA_SIZE:
             # finished downloading this chunkdata!
@@ -131,7 +144,7 @@ def process_inbound_udp(sock):
             received_chunkhash_str = sha1.hexdigest()
             print(f"Expected chunkhash: {ex_downloading_chunkhash}")
             print(f"Received chunkhash: {received_chunkhash_str}")
-            success = ex_downloading_chunkhash==received_chunkhash_str
+            success = ex_downloading_chunkhash == received_chunkhash_str
             print(f"Successful received: {success}")
             if success:
                 print("Congrats! You have completed the example!")
@@ -140,32 +153,35 @@ def process_inbound_udp(sock):
     elif Type == 4:
         # received an ACK pkt
         ack_num = socket.ntohl(Ack)
-        if (ack_num)*MAX_PAYLOAD >= CHUNK_DATA_SIZE:
+        if (ack_num) * MAX_PAYLOAD >= CHUNK_DATA_SIZE:
             # finished
             print(f"finished sending {ex_sending_chunkhash}")
             pass
         else:
             left = (ack_num) * MAX_PAYLOAD
-            right = min((ack_num+1)*MAX_PAYLOAD, CHUNK_DATA_SIZE)
+            right = min((ack_num + 1) * MAX_PAYLOAD, CHUNK_DATA_SIZE)
             next_data = config.haschunks[ex_sending_chunkhash][left: right]
             # send next data
-            data_header = struct.pack("HBBHHII", socket.htons(52305),35,  3, socket.htons(HEADER_LEN), socket.htons(HEADER_LEN+len(next_data)), socket.htonl(ack_num+1), 0)
-            sock.sendto(data_header+next_data, from_addr)
+            data_header = struct.pack("HBBHHII", socket.htons(52305), 93, 3, socket.htons(HEADER_LEN),
+                                      socket.htons(HEADER_LEN + len(next_data)), socket.htonl(ack_num + 1), 0)
+            sock.sendto(data_header + next_data, from_addr)
+
 
 def process_user_input(sock):
     command, chunkf, outf = input().split(' ')
     if command == 'DOWNLOAD':
-        process_download(sock ,chunkf, outf)
+        process_download(sock, chunkf, outf)
     else:
         pass
+
 
 def peer_run(config):
     addr = (config.ip, config.port)
     sock = simsocket.SimSocket(config.identity, addr, verbose=config.verbose)
 
     try:
-        while True:  
-            ready = select.select([sock, sys.stdin],[],[], 0.1)
+        while True:
+            ready = select.select([sock, sys.stdin], [], [], 0.1)
             read_ready = ready[0]
             if len(read_ready) > 0:
                 if sock in read_ready:
