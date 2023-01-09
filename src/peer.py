@@ -263,6 +263,7 @@ def peer_run(config):
             ready = select.select([sock, sys.stdin],[],[], 0.1)
             read_ready = ready[0]
             if len(read_ready) > 0:
+                
                 if sock in read_ready:
                     process_inbound_udp(sock)
                 if sys.stdin in read_ready:
@@ -271,6 +272,7 @@ def peer_run(config):
                 # No pkt nor input arrives during this period 
                 pass
             for chunkid, now_session in s_sessions.items():
+                
                 if now_session.isTimeout(): # timeout retransmit
                     chunkhash = bytes.hex(now_session.chunkhash)
                     send_data = config.haschunks[chunkhash][(now_session.sendBase-1)*MAX_PAYLOAD: now_session.sendBase*MAX_PAYLOAD]
