@@ -52,7 +52,25 @@ def process_download(sock,chunkfile, outputfile):
 
     outputFile = outputfile
     #read chunkhash to be downloaded
-    download_hash = bytes()
+ex_output_file = None
+ex_received_chunk = dict()
+ex_downloading_chunkhash = ""
+peer_received = dict()
+
+
+
+
+def process_download(sock, chunkfile, outputfile):
+    '''
+    if DOWNLOAD is used, the peer will keep getting files until it is done
+    '''
+    # print('PROCESS GET SKELETON CODE CALLED.  Fill me in! I\'ve been doing! (', chunkfile, ',     ', outputfile, ')')
+    global ex_output_file
+    global ex_received_chunk
+    global ex_downloading_chunkhash
+
+    ex_output_file = outputfile
+    # Step 1: read chunkhash to be downloaded from chunkfile
     with open(chunkfile, 'r') as cf:
         lines = cf.readlines()
         for line in lines:
@@ -80,6 +98,9 @@ def process_inbound_udp(sock):
     global chunkid_peer
     global r_sessions
     global chunkhash_chunkdata
+    global config
+    global ex_sending_chunkhash
+    global peer_received
 
     # Receive pkt
     pkt, from_addr = sock.recvfrom(BUF_SIZE)
@@ -203,49 +224,17 @@ def process_inbound_udp(sock):
             # print GET message
             print(f"GET {outputFile}")
 
-            # The following things are just for illustration, you do not need to print out in your design.
-            sha1 = hashlib.sha1()
-            sha1.update(chunkhash_chunkdata[bytes.hex(now_session.chunkhash)])
-            received_chunkhash_str = sha1.hexdigest()
-            print(f"Expected chunkhash: {bytes.hex(now_session.chunkhash)}")
-            print(f"Received chunkhash: {received_chunkhash_str}")
-            success = bytes.hex(now_session.chunkhash) == received_chunkhash_str
-            print(f"Successful received: {success}")
-            if success:
-                print("Congrats! You have completed the example!")
-            else:
-                print("Example fails. Please check the example files carefully.")
 
-    elif(Type == 4): # ACK
-        print(f'chunkid: {chunkid}, Ack: {Ack}. I recevie ack pkt from {from_addr}')
-        # get session
-        now_session = s_sessions[chunkid]
+    # print("SKELETON CODE CALLED, FILL this!")
+    # 根据接收Type类型判断当前状态
+    # 0: whohas
+    # 1: ihave
+    # 2: get
+    # 3: data
+    # 4: ACK
+    # 5: denied(暂时不用管）
+    #
 
-        chunkhash = chunkid_chunkhash[chunkid]
-        if(Ack > now_session.sendBase):
-            now_session.sendBase = Ack
-            if(now_session.sendBase != now_session.nextPktNum):
-                now_session.open_timer()
-            while now_session.nextPktNum <= now_session.sendBase+now_session.cwnd-1:
-                send_data = config.haschunks[chunkhash][(now_session.nextPktNum-1)*MAX_PAYLOAD: now_session.nextPktNum*MAX_PAYLOAD]
-                new_pkt = struct.pack("!HBBHHIII", 52305,93, 3, HEADER_LEN, HEADER_LEN+len(send_data), now_session.nextPktNum, 0, chunkid) + send_data
-                print(f'chunkid: {chunkid}, seq = {now_session.nextPktNum}. I send data pkt to {from_addr} with payload: {bytes.hex(send_data)}')
-                sock.sendto(new_pkt, from_addr)
-                now_session.nextPktNum += 1
-        else: # duplicate ACKs
-            now_session.duplicate_acks += 1
-            if(now_session.duplicate_acks == 3):
-                # fast retransmit
-                send_data = config.haschunks[chunkhash][(now_session.sendBase-1)*MAX_PAYLOAD: now_session.sendBase*MAX_PAYLOAD]
-                retransmit_pkt = struct.pack("!HBBHHIII", 52305,93, 3, HEADER_LEN, HEADER_LEN+len(send_data), now_session.sendBase, 0, chunkid)
-                print(f'chunkid: {chunkid}, seq = {now_session.sendBase}. I send data pkt to {from_addr} with payload: {bytes.hex(send_data)}')
-                # print()
-                sock.sendto(retransmit_pkt, from_addr)
-        if (Ack-1)*MAX_PAYLOAD >= CHUNK_DATA_SIZE:
-            # finished
-            print(f"finished sending {chunkhash}")
-            del s_sessions[chunkid]
-        print()
 
 def process_user_input(sock):
     command, chunkf, outf = input().split(' ')
