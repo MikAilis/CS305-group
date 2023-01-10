@@ -1,5 +1,5 @@
-2023-01-09 19:14:43,562 -+- PEER5_LOGGER -+- INFO -+- Start logging
-2023-01-09 19:14:43,562 -+- PEER5_LOGGER -+- INFO -+- Network simulator activated, running at ('127.0.0.1', 46367).
-2023-01-09 19:14:46,496 -+- PEER5_LOGGER -+- DEBUG -+- Receiving a type0 pkt from ('127.0.0.1', 48001) via spiffy, seq0, ack0, pkt_len40
-2023-01-09 19:14:46,497 -+- PEER5_LOGGER -+- DEBUG -+- sending a type1 pkt to ('127.0.0.1', 48001) via spiffy, seq0, ack0, pkt_len20
-2023-01-09 19:14:56,500 -+- PEER5_LOGGER -+- INFO -+- socket closed
+2023-01-10 11:17:11,405 -+- PEER5_LOGGER -+- INFO -+- Start logging
+2023-01-10 11:17:11,406 -+- PEER5_LOGGER -+- INFO -+- Network simulator activated, running at ('127.0.0.1', 51994).
+2023-01-10 11:17:14,338 -+- PEER5_LOGGER -+- DEBUG -+- Receiving a type0 pkt from ('127.0.0.1', 48001) via spiffy, seq0, ack0, pkt_len40
+2023-01-10 11:17:14,338 -+- PEER5_LOGGER -+- DEBUG -+- sending a type1 pkt to ('127.0.0.1', 48001) via spiffy, seq0, ack0, pkt_len20
+2023-01-10 11:17:24,338 -+- PEER5_LOGGER -+- INFO -+- socket closed
