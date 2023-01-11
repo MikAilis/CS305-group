@@ -58,6 +58,13 @@ def process_download(sock,chunkfile, outputfile):
             sock.sendto(whohas_pkt, (p[1], int(p[2])))
 
 def process_inbound_udp(sock):
+    global r_sessions
+    global s_sessions
+    global peer_chunkhash
+    global chunkhash_peer
+    global chunkhash_chunkdata
+    global sending_chunkhash
+
     # Receive pkt
     pkt, from_addr = sock.recvfrom(BUF_SIZE)
     Magic, Team, Type,hlen, plen, Seq, Ack, sendingTS= struct.unpack("!HBBHHIIQ", pkt[:HEADER_LEN])
