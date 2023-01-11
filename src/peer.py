@@ -105,12 +105,12 @@ def process_inbound_udp(sock):
             chunkhash_peer[chunkhash_str].append(from_addr)
 
             # add to queue
-            receiver_session.receive_queue.append(chunkhash_str)
+            receiver_session.request_queue.append(chunkhash_str)
         
         while True:
-            if len(receiver_session.receive_queue) == 0:
+            if len(receiver_session.request_queue) == 0:
                 break
-            hash = receiver_session.receive_queue.pop(0)
+            hash = receiver_session.request_queue.pop(0)
             if hash not in chunkhash_chunkdata and hash not in sending_chunkhash:
                 r_sessions[from_addr] = receiver_session
                 sending_chunkhash.add(hash)
@@ -183,10 +183,10 @@ def process_inbound_udp(sock):
             receiver_session.reset()
             # 处理队列
             while True:
-                if len(receiver_session.receive_queue) == 0:
+                if len(receiver_session.request_queue) == 0:
                     del r_sessions[from_addr]
                     break
-                hash = receiver_session.receive_queue.pop(0)
+                hash = receiver_session.request_queue.pop(0)
                 if (hash not in chunkhash_chunkdata) and (hash not in sending_chunkhash):
                     sending_chunkhash.add(hash)
                     # send get pkt
