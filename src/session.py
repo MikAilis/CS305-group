@@ -60,7 +60,7 @@ class Sender2Reciever_Session:
 
 class Reciever2Sender_Session:
     def __init__(self):
-        self.receive_queue = [] # chunkhash str
+        self.request_queue = [] # chunkhash str
         self.receiving_chunkhash = None
         self.pkts = [bytes() for _ in range(513)]
         self.waiting_pkt = 1
