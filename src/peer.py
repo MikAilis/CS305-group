@@ -154,7 +154,6 @@ def process_inbound_udp(sock):
     elif Type == 3:  # DATA pkt
         receiver_session = r_sessions[from_addr]
         chunkhash = receiver_session.receiving_chunkhash
-        print(f'length of data: {len(data)}')
         print(
             f'chunkhash: {chunkhash}, seq: {Seq}. I recevie from {from_addr} data pkt with payload: {bytes.hex(data)}')
         if len(receiver_session.pkts[Seq]) == 0:  # cache
@@ -205,6 +204,7 @@ def process_inbound_udp(sock):
                     break
 
         # see if all chunks are downloaded
+        print(f'len of get{len(chunkhash_chunkdata)}, I want {totalWant}')
         if len(chunkhash_chunkdata) == totalWant:
             # dump to output file
             with open(outputFile, "wb") as wf:
