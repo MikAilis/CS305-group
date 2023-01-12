@@ -24,6 +24,10 @@ class Sender2Reciever_Session:
         self.RTTVAR = None  # round-trip time variation
         self.RTO = 1 if timeout == 0 else timeout  # retransmission timeout
 
+        self.state = 0 # 0表示slow start; 1表示congestino avoidance
+
+        self.ssthresh = 64 # initial ssthresh
+
     def open_timer(self):
         self.timer_start = time()
 
@@ -56,6 +60,13 @@ class Sender2Reciever_Session:
 
     def updateTimeoutRTO(self):
         self.RTO = min(MAX_RTO, self.RTO * 2)
+    
+    def updatecwnd(self):
+        if self.state == 0:
+            self.cwnd += 1
+        else:
+            self.cwnd += (1 / self.cwnd)
+
 
 
 class Reciever2Sender_Session:
