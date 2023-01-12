@@ -5,7 +5,7 @@ MAX_PACKETS = 512
 alpha = 0.125
 beta = 0.25
 MIN_RTO = 1  # seconds, not used
-MAX_RTO = 15  # seconds
+MAX_RTO = 10  # seconds
 K = 4
 G = 0.1  # Clock Granularity，usually <= 100 msec; not used
 
@@ -22,7 +22,7 @@ class Sender2Reciever_Session:
         # 自适应rto
         self.SRTT = None  # smoothed round-trip time
         self.RTTVAR = None  # round-trip time variation
-        self.RTO = 1 if timeout is None else timeout  # retransmission timeout
+        self.RTO = 1 if timeout == 0 else timeout  # retransmission timeout
 
     def open_timer(self):
         self.timer_start = time()
@@ -60,6 +60,7 @@ class Sender2Reciever_Session:
 
 class Reciever2Sender_Session:
     def __init__(self):
+        self.start_time = None
         self.request_queue = []  # chunkhash str
         self.receiving_chunkhash = None
         self.pkts = [bytes() for _ in range(513)]
@@ -75,3 +76,9 @@ class Reciever2Sender_Session:
 
     def getChunkData(self):
         return bytes().join(self.pkts)
+
+    def open_timer(self):  # 收到一个pkt就打开计时器
+        self.start_time = time()
+
+    def isCrash(self):
+        return time() - self.start_time > MAX_RTO

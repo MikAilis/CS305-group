@@ -76,6 +76,7 @@ def process_inbound_udp(sock):
         chunks_num = len(data) // 20
         has_chunkHash = bytes()
         for i in range(chunks_num):
+            print('i:', i)
             require_chunkHash = data[i * 20:i * 20 + 20]
             # bytes to hex_str
             require_chunkHash_str = bytes.hex(require_chunkHash)
@@ -116,6 +117,7 @@ def process_inbound_udp(sock):
             hash = receiver_session.request_queue.pop(0)
             if hash not in chunkhash_chunkdata and hash not in sending_chunkhash:
                 r_sessions[from_addr] = receiver_session
+                receiver_session.open_timer()
                 sending_chunkhash.add(hash)
                 # send get pkt
                 get_header = struct.pack("!HBBHHIIQ", 52305, 93, 2, HEADER_LEN,
@@ -153,7 +155,9 @@ def process_inbound_udp(sock):
 
     elif Type == 3:  # DATA pkt
         receiver_session = r_sessions[from_addr]
+        receiver_session.open_timer()
         chunkhash = receiver_session.receiving_chunkhash
+        print(f'length of data: {len(data)}')
         print(
             f'chunkhash: {chunkhash}, seq: {Seq}. I recevie from {from_addr} data pkt with payload: {bytes.hex(data)}')
         if len(receiver_session.pkts[Seq]) == 0:  # cache
@@ -186,6 +190,15 @@ def process_inbound_udp(sock):
             sending_chunkhash.remove(chunkhash)
             # 更新receiver session
             receiver_session.reset()
+            # 验证接收的chunk
+            sha1 = hashlib.sha1()
+            sha1.update(chunkdata)
+            received_chunkhash_str = sha1.hexdigest()
+            print(f"Expected chunkhash: {chunkhash}")
+            print(f"Received chunkhash: {received_chunkhash_str}")
+            success = chunkhash == received_chunkhash_str
+            print(f"Successful received: {success}")
+            print()
             # 处理队列
             while True:
                 if len(receiver_session.request_queue) == 0:
@@ -204,26 +217,12 @@ def process_inbound_udp(sock):
                     break
 
         # see if all chunks are downloaded
-        print(f'len of get{len(chunkhash_chunkdata)}, I want {totalWant}')
         if len(chunkhash_chunkdata) == totalWant:
             # dump to output file
             with open(outputFile, "wb") as wf:
                 pickle.dump(chunkhash_chunkdata, wf)
             # print GET message
             print(f"GET {outputFile}")
-
-            # The following things are just for illustration, you do not need to print out in your design.
-            sha1 = hashlib.sha1()
-            sha1.update(chunkdata)
-            received_chunkhash_str = sha1.hexdigest()
-            print(f"Expected chunkhash: {chunkhash}")
-            print(f"Received chunkhash: {received_chunkhash_str}")
-            success = chunkhash == received_chunkhash_str
-            print(f"Successful received: {success}")
-            if success:
-                print("Congrats! You have completed the example!")
-            else:
-                print("Example fails. Please check the example files carefully.")
 
     elif Type == 4:  # ACK pkt
         # get session
@@ -300,18 +299,50 @@ def peer_run(config):
             else:
                 # No pkt nor input arrives during this period
                 pass
-            for from_addr, sender_session in s_sessions.items():
-                if sender_session.isTimeout():  # timeout retransmit
-                    sender_session.updateTimeoutRTO()
-                    print('retransmit RTT:', sender_session.RTO)
-                    chunkhash = sender_session.sending_chunkhash
-                    send_data = config.haschunks[chunkhash][
-                                (sender_session.sendBase - 1) * MAX_PAYLOAD: sender_session.sendBase * MAX_PAYLOAD]
-                    retransmit_pkt = struct.pack("!HBBHHIIQ", 52305, 93, 3, HEADER_LEN, HEADER_LEN + len(send_data),
-                                                 sender_session.sendBase, 0, int(round(time() * 1000000))) + send_data
-                    print(f'chunkhash: {chunkhash}, seq: {sender_session.sendBase}.I retransmit pkt to {from_addr}')
-                    sender_session.open_timer()
-                    sock.sendto(retransmit_pkt, from_addr)
+            # check if the peer crash
+            for from_addr, receiver_session in r_sessions.items():
+                if receiver_session.isCrash():
+                    print(f'{from_addr} crash. I will find a new peer to get {receiver_session.receiving_chunkhash}')
+                    # 删除关联信息
+                    del peer_chunkhash[from_addr]
+                    chunkhash_peer[receiver_session.receiving_chunkhash].remove(from_addr)
+                    sending_chunkhash.remove(receiver_session.receiving_chunkhash)
+                    del r_sessions[from_addr]
+                    isNewPeer = False
+                    for has_peer in chunkhash_peer[receiver_session.receiving_chunkhash]:
+                        if has_peer not in r_sessions:
+                            new_session = Reciever2Sender_Session()
+                            isNewPeer = True
+                            r_sessions[has_peer] = new_session
+                            new_session.open_timer()
+                            sending_chunkhash.add(receiver_session.receiving_chunkhash)
+                            # send get pkt
+                            get_header = struct.pack("!HBBHHIIQ", 52305, 93, 2, HEADER_LEN,
+                                                     HEADER_LEN + len(receiver_session.receiving_chunkhash), 0, 0, 0)
+                            get_pkt = get_header + bytes.fromhex(receiver_session.receiving_chunkhash)
+                            sock.sendto(get_pkt, has_peer)
+                            new_session.receiving_chunkhash = receiver_session.receiving_chunkhash  ###
+                            print(f'I send get pkt to {has_peer} with payload: {receiver_session.receiving_chunkhash}')
+                            break
+                        else:
+                            r_sessions[has_peer].request_queue.append(receiver_session.receiving_chunkhash)
+                    if isNewPeer:
+                        break
+            # check if the pkt is timeout for unset timeout
+            if config.timeout == 0:
+                for from_addr, sender_session in s_sessions.items():
+                    if sender_session.isTimeout():  # timeout retransmit
+                        sender_session.updateTimeoutRTO()
+                        print('retransmit RTT:', sender_session.RTO)
+                        chunkhash = sender_session.sending_chunkhash
+                        send_data = config.haschunks[chunkhash][
+                                    (sender_session.sendBase - 1) * MAX_PAYLOAD: sender_session.sendBase * MAX_PAYLOAD]
+                        retransmit_pkt = struct.pack("!HBBHHIIQ", 52305, 93, 3, HEADER_LEN, HEADER_LEN + len(send_data),
+                                                     sender_session.sendBase, 0,
+                                                     int(round(time() * 1000000))) + send_data
+                        print(f'chunkhash: {chunkhash}, seq: {sender_session.sendBase}.I retransmit pkt to {from_addr}')
+                        sender_session.open_timer()
+                        sock.sendto(retransmit_pkt, from_addr)
     except KeyboardInterrupt:
         pass
     finally:
