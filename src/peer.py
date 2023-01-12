@@ -6,12 +6,14 @@ import select
 import util.simsocket as simsocket
 import struct
 import socket
+import math
 import util.bt_utils as bt_utils
 import hashlib
 import argparse
 import pickle
 from time import time
 from session import Reciever2Sender_Session, Sender2Reciever_Session
+import matplotlib.pyplot as plt
 
 BUF_SIZE = 1400
 MAX_PAYLOAD = 1024
@@ -32,6 +34,9 @@ chunkhash_chunkdata = {}  # hash-data：下载完填入该字典中
 sending_chunkhash = set()
 
 totalWant = 0
+
+cwnd_record = []
+
 
 
 # download in cmd
@@ -67,6 +72,7 @@ def process_inbound_udp(sock):
     global chunkhash_peer
     global chunkhash_chunkdata
     global sending_chunkhash
+    global cwnd_record
 
     # Receive pkt
     pkt, from_addr = sock.recvfrom(BUF_SIZE)
@@ -150,19 +156,21 @@ def process_inbound_udp(sock):
             f'chunkhash: {chunkhash_str},seq: {1}.I send to {from_addr} data pkt with payload: {bytes.hex(send_data)}')
         print()
         # 更新发送窗口
+        # cwnd_record.append(1)
         sender_session.sendBase = 1
         sender_session.nextPktNum = sender_session.nextPktNum + 1
 
+
     elif Type == 3:  # DATA pkt
+        print(f'length of data: {len(data)}')
+        print(f'seq: {Seq}. I recevie from {from_addr} data pkt with payload: {bytes.hex(data)}')
         receiver_session = r_sessions[from_addr]
         receiver_session.open_timer()
         chunkhash = receiver_session.receiving_chunkhash
-        print(f'length of data: {len(data)}')
-        print(
-            f'chunkhash: {chunkhash}, seq: {Seq}. I recevie from {from_addr} data pkt with payload: {bytes.hex(data)}')
         if len(receiver_session.pkts[Seq]) == 0:  # cache
             receiver_session.pkts[Seq] = data
         if Seq == receiver_session.waiting_pkt:
+            print('receiver_session.waiting_pkt:', receiver_session.waiting_pkt)
             while True:
                 if receiver_session.isFinished():
                     break
@@ -237,6 +245,14 @@ def process_inbound_udp(sock):
             sender_session.updateRTO(sampleRtt)
         print('RTO:', sender_session.RTO)
 
+        # update cwnd
+        sender_session.updatecwnd()
+        if sender_session.cwnd >= sender_session.ssthresh:
+            sender_session.state = 1
+        
+        cwnd_record.append(sender_session.cwnd)
+            
+
         chunkhash = sender_session.sending_chunkhash
 
         if (Ack - 1) * MAX_PAYLOAD >= CHUNK_DATA_SIZE:  # finished
@@ -246,11 +262,14 @@ def process_inbound_udp(sock):
         else:  # not finished
             if (Ack > sender_session.sendBase):  # send new data
                 sender_session.sendBase = Ack
+                sender_session.duplicate_acks = 0 # 重置duplicate_acks = 0
                 if (sender_session.sendBase != sender_session.nextPktNum):
                     sender_session.open_timer()
                 else:
                     sender_session.close_timer()
-                while sender_session.nextPktNum <= sender_session.sendBase + sender_session.cwnd - 1:
+                while sender_session.nextPktNum <= sender_session.sendBase + math.floor(sender_session.cwnd) - 1:
+                    if sender_session.nextPktNum == 513: # 没data了
+                        break
                     send_data = config.haschunks[chunkhash][
                                 (sender_session.nextPktNum - 1) * MAX_PAYLOAD: sender_session.nextPktNum * MAX_PAYLOAD]
                     new_pkt = struct.pack("!HBBHHIIQ", 52305, 93, 3, HEADER_LEN, HEADER_LEN + len(send_data),
@@ -259,18 +278,26 @@ def process_inbound_udp(sock):
                         f'chunkhash: {chunkhash}, seq = {sender_session.nextPktNum}. I send data pkt to {from_addr} with payload: {bytes.hex(send_data)}')
                     if sender_session.timer_start is None:
                         sender_session.open_timer()
+                    # cwnd_record.append(sender_session.cwnd)
                     sock.sendto(new_pkt, from_addr)
                     sender_session.nextPktNum += 1
-            else:  # duplicate ACKs
+            elif Ack == sender_session.sendBase:  # duplicate ACKs
                 sender_session.duplicate_acks += 1
+                print('duplicate_acks:', sender_session.duplicate_acks)
                 if (sender_session.duplicate_acks == 3):
+                    sender_session.ssthresh = max(math.floor(sender_session.cwnd / 2), 2)
+                    sender_session.cwnd = 1
+                    sender_session.state = 0
+                    
+                    sender_session.open_timer() ### 不知道要不要重新记时间
                     # fast retransmit
                     send_data = config.haschunks[chunkhash][
                                 (sender_session.sendBase - 1) * MAX_PAYLOAD: sender_session.sendBase * MAX_PAYLOAD]
                     retransmit_pkt = struct.pack("!HBBHHIIQ", 52305, 93, 3, HEADER_LEN, HEADER_LEN + len(send_data),
-                                                 sender_session.sendBase, 0, int(round(time() * 1000000)))
+                                                 sender_session.sendBase, 0, int(round(time() * 1000000))) + send_data
                     print(
-                        f'chunkhash: {chunkhash}, seq = {sender_session.sendBase}. I send data pkt to {from_addr} with payload: {bytes.hex(send_data)}')
+                        f'retransmit_pkt---chunkhash: {chunkhash}, seq = {sender_session.sendBase}. I send data pkt to {from_addr} with payload: {bytes.hex(send_data)}')
+                    # cwnd_record.append(sender_session.cwnd)
                     sock.sendto(retransmit_pkt, from_addr)
         print()
 
@@ -300,38 +327,44 @@ def peer_run(config):
                 # No pkt nor input arrives during this period
                 pass
             # check if the peer crash
+            delete_list = [] # get all crash peer
             for from_addr, receiver_session in r_sessions.items():
                 if receiver_session.isCrash():
-                    print(f'{from_addr} crash. I will find a new peer to get {receiver_session.receiving_chunkhash}')
-                    # 删除关联信息
-                    del peer_chunkhash[from_addr]
-                    chunkhash_peer[receiver_session.receiving_chunkhash].remove(from_addr)
-                    sending_chunkhash.remove(receiver_session.receiving_chunkhash)
-                    del r_sessions[from_addr]
-                    isNewPeer = False
-                    for has_peer in chunkhash_peer[receiver_session.receiving_chunkhash]:
-                        if has_peer not in r_sessions:
-                            new_session = Reciever2Sender_Session()
-                            isNewPeer = True
-                            r_sessions[has_peer] = new_session
-                            new_session.open_timer()
-                            sending_chunkhash.add(receiver_session.receiving_chunkhash)
-                            # send get pkt
-                            get_header = struct.pack("!HBBHHIIQ", 52305, 93, 2, HEADER_LEN,
-                                                     HEADER_LEN + len(receiver_session.receiving_chunkhash), 0, 0, 0)
-                            get_pkt = get_header + bytes.fromhex(receiver_session.receiving_chunkhash)
-                            sock.sendto(get_pkt, has_peer)
-                            new_session.receiving_chunkhash = receiver_session.receiving_chunkhash  ###
-                            print(f'I send get pkt to {has_peer} with payload: {receiver_session.receiving_chunkhash}')
-                            break
-                        else:
-                            r_sessions[has_peer].request_queue.append(receiver_session.receiving_chunkhash)
-                    if isNewPeer:
+                    delete_list.append(from_addr)
+            # create a new connection with another peer
+            for from_addr in delete_list:
+                receiver_session = r_sessions[from_addr]
+                print(f'{from_addr} crash. I will find a new peer to get {receiver_session.receiving_chunkhash}')
+                # 删除关联信息
+                del peer_chunkhash[from_addr]
+                chunkhash_peer[receiver_session.receiving_chunkhash].remove(from_addr)
+                sending_chunkhash.remove(receiver_session.receiving_chunkhash)
+                del r_sessions[from_addr]
+                # 找新的peer
+                for has_peer in chunkhash_peer[receiver_session.receiving_chunkhash]:
+                    if has_peer not in r_sessions:
+                        new_session = Reciever2Sender_Session()
+                        r_sessions[has_peer] = new_session
+                        new_session.open_timer()
+                        sending_chunkhash.add(receiver_session.receiving_chunkhash)
+                        # send get pkt
+                        get_header = struct.pack("!HBBHHIIQ", 52305, 93, 2, HEADER_LEN,
+                                                    HEADER_LEN + len(receiver_session.receiving_chunkhash), 0, 0, 0)
+                        get_pkt = get_header + bytes.fromhex(receiver_session.receiving_chunkhash)
+                        sock.sendto(get_pkt, has_peer)
+                        new_session.receiving_chunkhash = receiver_session.receiving_chunkhash  ###
+                        print(f'I send get pkt to {has_peer} with payload: {receiver_session.receiving_chunkhash}')
                         break
+                    else:
+                        r_sessions[has_peer].request_queue.append(receiver_session.receiving_chunkhash)
             # check if the pkt is timeout for unset timeout
             if config.timeout == 0:
                 for from_addr, sender_session in s_sessions.items():
                     if sender_session.isTimeout():  # timeout retransmit
+                        sender_session.ssthresh = max(math.floor(sender_session.cwnd / 2), 2)
+                        sender_session.cwnd = 1
+                        sender_session.state = 0
+
                         sender_session.updateTimeoutRTO()
                         print('retransmit RTT:', sender_session.RTO)
                         chunkhash = sender_session.sending_chunkhash
@@ -345,7 +378,16 @@ def peer_run(config):
                         sock.sendto(retransmit_pkt, from_addr)
     except KeyboardInterrupt:
         pass
+        # draw picture
+        # plt.figure()
+        # x = [i for i in range(1, len(cwnd_record)+1)]
+        # plt.plot(x, cwnd_record)
+        # plt.show()
     finally:
+        if len(cwnd_record) > 0:
+            with open('log/windowlog.log', mode='w') as f:
+                for v in cwnd_record:
+                    f.write(f'{v}\n')
         sock.close()
 
 
@@ -370,3 +412,4 @@ if __name__ == '__main__':
 
     config = bt_utils.BtConfig(args)
     peer_run(config)
+    
